@@ -1,0 +1,44 @@
+# Xcode
+# =========================
+# Build results
+build/
+DerivedData/
+
+# Author-specific files
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+
+# Personal schemes
+**/xcuserdata/
+
+# Xcode State
+*.xcworkspace
+!default.xcworkspace
+
+# CocoaPods / Swift Package Manager
+.swiftpm/xcode/package.resolved
+.swiftpm/xcode/xcshareddata/
+.build/
+
+# macOS Finder
+.DS_Store
+.DocumentRevisions-V100
+.LSOverride
+.Spotlight-V100
+.Trashes
+*.icloud
+
+# Temporary files
+*.swp
+*~
+*.tmp
+*.bak
+slimvdo_source_*
+slimvdo_compressed_*
