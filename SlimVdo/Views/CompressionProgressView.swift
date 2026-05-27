@@ -188,6 +188,12 @@ struct CompressionProgressView: View {
                 Spacer()
             }
         }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
     }
     
     // MARK: - 辅助方法

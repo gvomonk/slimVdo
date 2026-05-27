@@ -56,11 +56,13 @@ struct PhotoCompressionConfigView: View {
                             if viewModel.originalURLs.count == 1,
                                let origURL = viewModel.originalURL,
                                let uiImage = UIImage(contentsOfFile: origURL.path) {
-                                Image(uiImage: uiImage)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(maxWidth: .infinity)
+                                Color.clear
                                     .frame(height: 180)
+                                    .overlay(
+                                        Image(uiImage: uiImage)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    )
                                     .clipped()
                                     .cornerRadius(16)
                                     .overlay(
@@ -73,7 +75,7 @@ struct PhotoCompressionConfigView: View {
                             // Info list
                             if viewModel.originalURLs.count == 1 {
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                                    InfoRow(label: "相片名", value: viewModel.photoTitle)
+                                    InfoRow(label: "相片名", value: viewModel.cleanPhotoTitle)
                                     InfoRow(label: "文件大小", value: formatBytes(viewModel.originalSize))
                                     InfoRow(label: "物理尺寸", value: "\(Int(viewModel.width)) × \(Int(viewModel.height))")
                                     InfoRow(label: "原始格式", value: viewModel.codecUsed)
@@ -99,33 +101,35 @@ struct PhotoCompressionConfigView: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .padding(.horizontal)
-                            HStack(spacing: 8) {
-                                ForEach([PhotoCompressionPreset.p85, .p70, .p50, .p30, .p15], id: \.id) { preset in
-                                    Button(action: {
-                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                            let newSettings = PhotoCompressionSettings.settings(for: preset)
-                                            viewModel.settings = newSettings
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach([PhotoCompressionPreset.p85, .p70, .p50, .p30, .p15], id: \.id) { preset in
+                                        Button(action: {
+                                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                                let newSettings = PhotoCompressionSettings.settings(for: preset)
+                                                viewModel.settings = newSettings
+                                            }
+                                        }) {
+                                            Text(preset.displayName)
+                                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                                .foregroundColor(viewModel.settings.preset == preset ? .white : .gray)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 8)
+                                                .background(
+                                                    viewModel.settings.preset == preset
+                                                    ? AnyShapeStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                                    : AnyShapeStyle(Color.white.opacity(0.04))
+                                                )
+                                                .cornerRadius(20)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 20)
+                                                        .stroke(viewModel.settings.preset == preset ? Color.clear : Color.white.opacity(0.06), lineWidth: 1)
+                                                )
                                         }
-                                    }) {
-                                        Text(preset.displayName)
-                                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                                            .foregroundColor(viewModel.settings.preset == preset ? .white : .gray)
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 8)
-                                            .background(
-                                                viewModel.settings.preset == preset
-                                                ? AnyShapeStyle(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                                : AnyShapeStyle(Color.white.opacity(0.04))
-                                            )
-                                            .cornerRadius(20)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 20)
-                                                    .stroke(viewModel.settings.preset == preset ? Color.clear : Color.white.opacity(0.06), lineWidth: 1)
-                                            )
                                     }
                                 }
+                                .padding(.horizontal)
                             }
-                            .padding(.horizontal)
                         }
                         
                         // 4. 自定义参数（折叠下拉菜单）

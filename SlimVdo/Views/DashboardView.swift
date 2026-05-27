@@ -439,6 +439,10 @@ struct DashboardView: View {
                 .zIndex(99)
             }
         }
+        .onAppear {
+            storageAnalyzer.refreshStorageInfo()
+            VideoCompressor().clearAllTempFiles()
+        }
     }
     
     // MARK: - 辅助方法

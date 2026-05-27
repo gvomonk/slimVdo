@@ -67,6 +67,12 @@ struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
+                        .onAppear {
+                            UIApplication.shared.isIdleTimerDisabled = true
+                        }
+                        .onDisappear {
+                            UIApplication.shared.isIdleTimerDisabled = false
+                        }
                         
                     case .completed:
                         PhotoCompressionResultView(viewModel: photoViewModel)

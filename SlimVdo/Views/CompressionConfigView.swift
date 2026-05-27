@@ -109,36 +109,38 @@ struct CompressionConfigView: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .padding(.horizontal)
-                            HStack(spacing: 8) {
-                                ForEach([CompressionPreset.p85, .p70, .p50, .p30, .p15], id: \.id) { preset in
-                                    Button(action: {
-                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                            let newSettings = CompressionSettings.settings(for: preset)
-                                            viewModel.settings = newSettings
-                                            // 设置默认的输出格式为原文件的
-                                            viewModel.settings.outputFormat = viewModel.originalContainerFormat
-                                            viewModel.settings.codec = viewModel.originalCodec
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach([CompressionPreset.p85, .p70, .p50, .p30, .p15], id: \.id) { preset in
+                                        Button(action: {
+                                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                                let newSettings = CompressionSettings.settings(for: preset)
+                                                viewModel.settings = newSettings
+                                                // 设置默认的输出格式为原文件的
+                                                viewModel.settings.outputFormat = viewModel.originalContainerFormat
+                                                viewModel.settings.codec = viewModel.originalCodec
+                                            }
+                                        }) {
+                                            Text(preset.displayName)
+                                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                                .foregroundColor(viewModel.settings.preset == preset ? .white : .gray)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 8)
+                                                .background(
+                                                    viewModel.settings.preset == preset
+                                                    ? AnyShapeStyle(LinearGradient(colors: [.purple, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                                    : AnyShapeStyle(Color.white.opacity(0.04))
+                                                )
+                                                .cornerRadius(20)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 20)
+                                                        .stroke(viewModel.settings.preset == preset ? Color.clear : Color.white.opacity(0.06), lineWidth: 1)
+                                                )
                                         }
-                                    }) {
-                                        Text(preset.displayName)
-                                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                                            .foregroundColor(viewModel.settings.preset == preset ? .white : .gray)
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 8)
-                                            .background(
-                                                viewModel.settings.preset == preset
-                                                ? AnyShapeStyle(LinearGradient(colors: [.purple, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                                : AnyShapeStyle(Color.white.opacity(0.04))
-                                            )
-                                            .cornerRadius(20)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 20)
-                                                    .stroke(viewModel.settings.preset == preset ? Color.clear : Color.white.opacity(0.06), lineWidth: 1)
-                                            )
                                     }
                                 }
+                                .padding(.horizontal)
                             }
-                            .padding(.horizontal)
                         }
                         
                         // 4. 自定义参数（折叠下拉菜单）

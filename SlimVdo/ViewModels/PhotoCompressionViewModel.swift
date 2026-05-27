@@ -43,6 +43,17 @@ public final class PhotoCompressionViewModel: ObservableObject {
     
     // 照片元数据
     @Published public var photoTitle: String = ""
+    public var cleanPhotoTitle: String {
+        if photoTitle.hasPrefix("slimvdo_photo_source_") {
+            // "slimvdo_photo_source_" 长度为 21，UUID 长度为 36，后面下划线 1 字符共 58 字符
+            let prefixLength = 21 + 36 + 1
+            if photoTitle.count > prefixLength {
+                let index = photoTitle.index(photoTitle.startIndex, offsetBy: prefixLength)
+                return String(photoTitle[index...])
+            }
+        }
+        return photoTitle
+    }
     @Published public var originalSize: Int64 = 0
     @Published public var width: CGFloat = 0.0
     @Published public var height: CGFloat = 0.0
