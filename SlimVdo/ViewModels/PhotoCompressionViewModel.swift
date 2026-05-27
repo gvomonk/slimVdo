@@ -39,7 +39,7 @@ public final class PhotoCompressionViewModel: ObservableObject {
     // MARK: - Published 驱动状态
     
     @Published public var state: PhotoCompressionState = .idle
-    @Published public var settings = PhotoCompressionSettings.settings(for: .standard)
+    @Published public var settings = PhotoCompressionSettings.settings(for: .p70)
     
     // 照片元数据
     @Published public var photoTitle: String = ""
@@ -105,7 +105,115 @@ public final class PhotoCompressionViewModel: ObservableObject {
     
     // MARK: - 照片选择与载入 (现代 loadTransferable 接口)
     
-    /// 从 SwiftUI 相册选择器结果中异步载入照片并解析元数据
+    /// 从 PHAsset 集合中高性能直连载入照片并解析元数据 (0拷贝, 毫秒级直读, 原生 HEIC 支持)
+    public func selectPhotosFromAssets(_ assets: [PHAsset]) async {
+        self.state = .loadingAsset
+        
+        do {
+            var urls: [URL] = []
+            var totalSize: Int64 = 0
+            
+            let options = PHImageRequestOptions()
+            options.isNetworkAccessAllowed = false // 强制禁止后台自动下载 iCloud 资源，彻底屏蔽系统网络询问弹窗
+            options.deliveryMode = .highQualityFormat
+            
+            for asset in assets {
+                let rawData = try await requestImageData(for: asset, options: options)
+                
+                // 提取原文件名，支持原名带 _1 命名逻辑
+                let resources = PHAssetResource.assetResources(for: asset)
+                let originalFilename = resources.first?.originalFilename ?? "photo.heic"
+                let baseName = (originalFilename as NSString).deletingPathExtension
+                let ext = (originalFilename as NSString).pathExtension.lowercased()
+                
+                let tempDir = FileManager.default.temporaryDirectory
+                let tempURL = tempDir.appendingPathComponent("slimvdo_photo_source_\(UUID().uuidString)_\(baseName).\(ext)")
+                try rawData.write(to: tempURL)
+                urls.append(tempURL)
+                
+                totalSize += Int64(rawData.count)
+            }
+            
+            guard !urls.isEmpty else {
+                self.state = .failed(error: "未选中任何合法的图像文件")
+                return
+            }
+            
+            self.originalURLs = urls
+            self.originalSize = totalSize
+            self.originalAssets = assets
+            
+            let firstURL = urls[0]
+            self.originalURL = firstURL
+            self.originalAsset = assets.first
+            
+            guard let imageSource = CGImageSourceCreateWithURL(firstURL as CFURL, nil) else {
+                throw NSError(domain: "PhotoCompressionViewModel", code: -31, userInfo: [NSLocalizedDescriptionKey: "无法解析照片的属性信息"])
+            }
+            
+            if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [String: Any] {
+                self.width = properties[kCGImagePropertyPixelWidth as String] as? CGFloat ?? 0
+                self.height = properties[kCGImagePropertyPixelHeight as String] as? CGFloat ?? 0
+            }
+            
+            if urls.count > 1 {
+                self.photoTitle = "批量压缩 (\(urls.count)张照片)"
+            } else {
+                let resources = PHAssetResource.assetResources(for: assets[0])
+                self.photoTitle = resources.first?.originalFilename ?? firstURL.lastPathComponent
+            }
+            
+            if let type = CGImageSourceGetType(imageSource) {
+                let typeString = type as String
+                if typeString == UTType.heic.identifier {
+                    self.codecUsed = "HEIC (高效编码)"
+                } else if typeString == UTType.jpeg.identifier {
+                    self.codecUsed = "JPEG (传统格式)"
+                } else {
+                    self.codecUsed = "PNG / 其他图像"
+                }
+            } else {
+                self.codecUsed = "未知图像"
+            }
+            
+            self.settings = PhotoCompressionSettings.settings(for: .p70)
+            self.compressedSize = 0
+            self.compressedURL = nil
+            self.state = .configuring
+            
+        } catch {
+            let errorMsg = error.localizedDescription
+            if errorMsg.contains("iCloud") || errorMsg.contains("Cloud") || (error as NSError).code == -1 {
+                self.state = .failed(error: "本app被禁止联网\n请放心使用\n（若您正操作的文件在iCloud云端\n请先下载到本地）")
+            } else {
+                self.state = .failed(error: "读取照片信息失败: \(error.localizedDescription)")
+            }
+            self.cleanup()
+        }
+    }
+    
+    private func requestImageData(for asset: PHAsset, options: PHImageRequestOptions) async throws -> Data {
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let primaryResource = resources.first(where: { $0.type == .photo }) ?? resources.first else {
+            throw NSError(domain: "PhotoCompressionViewModel", code: -32, userInfo: [NSLocalizedDescriptionKey: "无法获取照片资源"])
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            var accumulatedData = Data()
+            let resourceOptions = PHAssetResourceRequestOptions()
+            resourceOptions.isNetworkAccessAllowed = false // 绝对静默离线，杜绝任何网络弹窗
+            
+            PHAssetResourceManager.default().requestData(for: primaryResource, options: resourceOptions, dataReceivedHandler: { data in
+                accumulatedData.append(data)
+            }) { error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: accumulatedData)
+                }
+            }
+        }
+    }
     public func selectPhotos(photosPickerItems: [PhotosPickerItem]) async {
         self.state = .loadingAsset
         
@@ -178,7 +286,7 @@ public final class PhotoCompressionViewModel: ObservableObject {
             }
             
             // 成功，切入配置页面
-            self.settings = PhotoCompressionSettings.settings(for: .standard)
+            self.settings = PhotoCompressionSettings.settings(for: .p70)
             self.compressedSize = 0
             self.compressedURL = nil
             self.state = .configuring
@@ -253,7 +361,7 @@ public final class PhotoCompressionViewModel: ObservableObject {
         }
         
         // 成功，切入配置页面
-        self.settings = PhotoCompressionSettings.settings(for: .standard)
+        self.settings = PhotoCompressionSettings.settings(for: .p70)
         self.compressedSize = 0
         self.compressedURL = nil
         self.state = .configuring
@@ -305,9 +413,10 @@ public final class PhotoCompressionViewModel: ObservableObject {
         
         for (idx, outputURL) in compressedURLs.enumerated() {
             let asset = idx < originalAssets.count ? originalAssets[idx] : nil
+            let keepMeta = settings.keepMetadata
             try await PHPhotoLibrary.shared().performChanges {
                 let creationRequest = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: outputURL)
-                if let orig = asset {
+                if keepMeta, let orig = asset {
                     creationRequest?.creationDate = orig.creationDate
                     creationRequest?.location = orig.location
                 }
@@ -327,9 +436,10 @@ public final class PhotoCompressionViewModel: ObservableObject {
         // 1. 保存压缩版本，继承日期定位
         for (idx, outputURL) in compressedURLs.enumerated() {
             let asset = idx < originalAssets.count ? originalAssets[idx] : nil
+            let keepMeta = settings.keepMetadata
             try await PHPhotoLibrary.shared().performChanges {
                 let creationRequest = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: outputURL)
-                if let orig = asset {
+                if keepMeta, let orig = asset {
                     creationRequest?.creationDate = orig.creationDate
                     creationRequest?.location = orig.location
                 }

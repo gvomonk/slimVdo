@@ -28,7 +28,7 @@ struct PhotoCompressionResultView: View {
             VStack(spacing: 0) {
                 
                 // 1. Success Header
-                VStack(spacing: 6) {
+                HStack(spacing: 6) {
                     ZStack {
                         Circle()
                             .fill(Color.emeraldGreen.opacity(0.12))
@@ -49,23 +49,8 @@ struct PhotoCompressionResultView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 24) {
                         
-                        // 2. Statistics Card
-                        VStack(spacing: 12) {
-                            HStack {
-                                Text("大小对比")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                Text(String(format: "体积缩小 -%.1f%%", viewModel.actualSavingsRatio * 100))
-                                    .font(.caption)
-                                    .fontWeight(.black)
-                                    .foregroundColor(.emeraldGreen)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.emeraldGreen.opacity(0.12))
-                                    .cornerRadius(6)
-                            }
-                            
+                        // 2. Statistics Card（与视频结果页统一风格）
+                        VStack(spacing: 16) {
                             HStack(alignment: .bottom) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("原大小")
@@ -78,10 +63,19 @@ struct PhotoCompressionResultView: View {
                                 
                                 Spacer()
                                 
-                                Image(systemName: "arrow.right")
-                                    .font(.title3)
-                                    .foregroundColor(.blue)
-                                    .padding(.bottom, 4)
+                                VStack(spacing: 4) {
+                                    Text(String(format: "-%.0f%%", viewModel.actualSavingsRatio * 100))
+                                        .font(.system(size: 11, weight: .black))
+                                        .foregroundColor(.emeraldGreen)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(Color.emeraldGreen.opacity(0.12))
+                                        .cornerRadius(6)
+                                    
+                                    Image(systemName: "arrow.right")
+                                        .font(.title3)
+                                        .foregroundColor(.blue)
+                                }
                                 
                                 Spacer()
                                 
@@ -94,6 +88,22 @@ struct PhotoCompressionResultView: View {
                                         .fontWeight(.black)
                                         .foregroundColor(.white)
                                 }
+                            }
+                            
+                            if viewModel.originalURLs.count == 1 {
+                                // 分辨率
+                                CompactComparisonRow(
+                                    label: "分辨率",
+                                    leftValue: "\(Int(viewModel.width))x\(Int(viewModel.height))",
+                                    rightValue: "\(Int(viewModel.width * viewModel.settings.resolutionScale))x\(Int(viewModel.height * viewModel.settings.resolutionScale))"
+                                )
+                                
+                                // 质量
+                                CompactComparisonRow(
+                                    label: "质量",
+                                    leftValue: "100%",
+                                    rightValue: "\(Int(viewModel.settings.compressionQuality * 100))%"
+                                )
                             }
                         }
                         .padding(16)
@@ -108,21 +118,16 @@ struct PhotoCompressionResultView: View {
                         // 3. Touch Gesture Comparator (原位按住无缝对比器)
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("画质比对")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
                                 Spacer()
-                                Text(isPressingCompare ? "原画" : "压缩后")
+                                Text(isPressingCompare ? "原图" : "压缩图")
                                     .font(.caption)
-                                    .fontWeight(.semibold)
+                                    .fontWeight(.bold)
                                     .foregroundColor(isPressingCompare ? .orange : .blue)
                             }
                             .padding(.horizontal)
                             
                             // 对比预览区域
                             ZStack(alignment: .topTrailing) {
-                                // 加载指定文件图像
                                 if let origURL = viewModel.originalURL,
                                    let compURL = viewModel.compressedURL,
                                    let origImg = UIImage(contentsOfFile: origURL.path),
@@ -138,7 +143,6 @@ struct PhotoCompressionResultView: View {
                                             RoundedRectangle(cornerRadius: 20)
                                                 .stroke(isPressingCompare ? Color.orange.opacity(0.5) : Color.blue.opacity(0.3), lineWidth: 1.5)
                                         )
-                                        // 绑定极速按住拖拽手势检测
                                         .gesture(
                                             DragGesture(minimumDistance: 0)
                                                 .onChanged { _ in
@@ -190,16 +194,15 @@ struct PhotoCompressionResultView: View {
                                 }
                             }
                         }) {
-                            VStack(spacing: 4) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "square.and.arrow.down.fill")
-                                    .font(.title3)
-                                Text("保存")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
+                                Text("保存副本")
                             }
+                            .font(.subheadline)
+                            .fontWeight(.bold)
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 16)
                             .background(Color.white.opacity(0.06))
                             .cornerRadius(16)
                             .overlay(
@@ -225,16 +228,15 @@ struct PhotoCompressionResultView: View {
                                 }
                             }
                         }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "arrow.triangle.2.circlepath.doc.on.doc.fill")
-                                    .font(.title3)
-                                Text("替换")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.on.doc")
+                                Text("一键替换")
                             }
+                            .font(.subheadline)
+                            .fontWeight(.bold)
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 16)
                             .background(
                                 LinearGradient(
                                     colors: [.blue, .indigo],
@@ -254,7 +256,7 @@ struct PhotoCompressionResultView: View {
                             viewModel.cleanup()
                         }
                     }) {
-                        Text("返回")
+                        Text("放弃并返回")
                             .font(.subheadline)
                             .foregroundColor(.gray)
                     }

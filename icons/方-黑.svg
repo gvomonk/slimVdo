@@ -1,0 +1,49 @@
+<svg width="1024" height="1024" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg-grad" cx="50%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#1C183A" />
+      <stop offset="100%" stop-color="#0B0816" />
+    </radialGradient>
+    <linearGradient id="play-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EC4899" />
+      <stop offset="100%" stop-color="#6366F1" />
+    </linearGradient>
+    <linearGradient id="squeeze-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="50%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+    
+    <!-- Neon Squeeze Glow (Uses userSpaceOnUse to prevent clipping) -->
+    <filter id="squeeze-glow" filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#06B6D4" flood-opacity="0.25"/>
+    </filter>
+    
+    <!-- Neon Play Button Glow -->
+    <filter id="play-glow" filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#EC4899" flood-opacity="0.35"/>
+    </filter>
+    
+    <!-- Sparkle Shadow -->
+    <filter id="sparkle-glow" filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#FACC15" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Clean Borderless Rounded Square Background -->
+  <rect width="200" height="200" rx="44" fill="url(#bg-grad)"/>
+
+  <!-- Left Squeeze Curve (Borderless Neon) -->
+  <path d="M 56 55 C 72 85, 72 115, 56 145" fill="none" stroke="url(#squeeze-grad)" stroke-width="12" stroke-linecap="round" filter="url(#squeeze-glow)"/>
+
+  <!-- Right Squeeze Curve (Borderless Neon) -->
+  <path d="M 144 55 C 128 85, 128 115, 144 145" fill="none" stroke="url(#squeeze-grad)" stroke-width="12" stroke-linecap="round" filter="url(#squeeze-glow)"/>
+
+  <!-- Play Button (Borderless Volumetric Glow) -->
+  <path d="M 86 82 L 114 100 L 86 118 Z" fill="url(#play-grad)" stroke="url(#play-grad)" stroke-width="10" stroke-linejoin="round" stroke-linecap="round" filter="url(#play-glow)"/>
+
+  <!-- Cute Star Sparkles 1 -->
+  <path d="M 127 62 Q 132 62 132 57 Q 132 62 137 62 Q 132 62 132 67 Q 132 62 127 62 Z" fill="#FACC15" filter="url(#sparkle-glow)"/>
+  <!-- Cute Star Sparkles 2 -->
+  <path d="M 63 138 Q 68 138 68 133 Q 68 138 73 138 Q 68 138 68 143 Q 68 138 63 138 Z" fill="#FACC15" filter="url(#sparkle-glow)"/>
+</svg>

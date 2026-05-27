@@ -13,14 +13,14 @@ public enum PhotoFormat: String, Codable, CaseIterable {
     case heic = "HEIC (高效且体积小)"
     case jpeg = "JPEG (通用兼容)"
     
-    public var uti: String {
+    nonisolated public var uti: String {
         switch self {
         case .heic: return "public.heic"
         case .jpeg: return "public.jpeg"
         }
     }
     
-    public var pathExtension: String {
+    nonisolated public var pathExtension: String {
         switch self {
         case .heic: return "heic"
         case .jpeg: return "jpg"
@@ -28,24 +28,17 @@ public enum PhotoFormat: String, Codable, CaseIterable {
     }
 }
 
-/// 照片预设档位
+/// 照片预设档位（与视频预设对齐，百分比代表目标大小占原始比例）
 public enum PhotoCompressionPreset: String, Codable, CaseIterable, Identifiable {
-    case extreme = "极限压缩"
-    case standard = "标准平衡"
-    case high = "极致高清"
+    case p85 = "85%"
+    case p70 = "70%"
+    case p50 = "50%"
+    case p30 = "30%"
+    case p15 = "15%"
     case custom = "自定义"
     
     public var id: String { self.rawValue }
     public var displayName: String { self.rawValue }
-    
-    public var iconName: String {
-        switch self {
-        case .extreme: return "photo.fill.on.rectangle.fill"
-        case .standard: return "checkmark.circle.fill"
-        case .high: return "sparkles"
-        case .custom: return "slider.horizontal.3"
-        }
-    }
 }
 
 /// 照片压缩参数配置模型
@@ -57,7 +50,7 @@ public struct PhotoCompressionSettings: Codable, Equatable {
     public var keepMetadata: Bool         // 是否保留 Exif 和 GPS 元数据
     
     public init(
-        preset: PhotoCompressionPreset = .standard,
+        preset: PhotoCompressionPreset = .p70,
         format: PhotoFormat = .heic,
         resolutionScale: CGFloat = 0.8,
         compressionQuality: CGFloat = 0.75,
@@ -73,28 +66,44 @@ public struct PhotoCompressionSettings: Codable, Equatable {
     /// 获取当前照片预设对应的配置
     public static func settings(for preset: PhotoCompressionPreset) -> PhotoCompressionSettings {
         switch preset {
-        case .extreme:
+        case .p85:
             return PhotoCompressionSettings(
-                preset: .extreme,
+                preset: .p85,
                 format: .heic,
-                resolutionScale: 0.5,       // 分辨率减半
-                compressionQuality: 0.55,   // 极限压制
+                resolutionScale: 1.0,
+                compressionQuality: 0.85,
                 keepMetadata: true
             )
-        case .standard:
+        case .p70:
             return PhotoCompressionSettings(
-                preset: .standard,
+                preset: .p70,
                 format: .heic,
-                resolutionScale: 0.8,       // 缩小 20%
-                compressionQuality: 0.75,   // 黄金画质保留比
+                resolutionScale: 0.9,
+                compressionQuality: 0.75,
                 keepMetadata: true
             )
-        case .high:
+        case .p50:
             return PhotoCompressionSettings(
-                preset: .high,
+                preset: .p50,
                 format: .heic,
-                resolutionScale: 1.0,       // 保持原画大小
-                compressionQuality: 0.88,   // 几乎无感压缩
+                resolutionScale: 0.75,
+                compressionQuality: 0.65,
+                keepMetadata: true
+            )
+        case .p30:
+            return PhotoCompressionSettings(
+                preset: .p30,
+                format: .heic,
+                resolutionScale: 0.6,
+                compressionQuality: 0.50,
+                keepMetadata: true
+            )
+        case .p15:
+            return PhotoCompressionSettings(
+                preset: .p15,
+                format: .heic,
+                resolutionScale: 0.5,
+                compressionQuality: 0.35,
                 keepMetadata: true
             )
         case .custom:

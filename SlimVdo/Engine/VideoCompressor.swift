@@ -27,10 +27,29 @@ public final class VideoCompressor {
         settings: CompressionSettings,
         progressHandler: @Sendable @escaping (CompressionProgressUpdate) -> Void
     ) async throws -> URL {
-        // 创建唯一临时输出路径
+        // 从原始路径提取真正的文件名，追加 _1 作为输出，保障不带多余的 UUID 串
         let tempDir = FileManager.default.temporaryDirectory
-        let uniqueName = "slimvdo_compressed_\(UUID().uuidString).mp4"
-        let outputURL = tempDir.appendingPathComponent(uniqueName)
+        let inputFilename = inputURL.lastPathComponent
+        var outputName = ""
+        
+        if inputFilename.hasPrefix("slimvdo_source_") {
+            // "slimvdo_source_" 长度为 15，UUID 长度为 36，后面跟一个下划线共 52 字符
+            let prefixLength = 15 + 36 + 1
+            if inputFilename.count > prefixLength {
+                let startIndex = inputFilename.index(inputFilename.startIndex, offsetBy: prefixLength)
+                let rest = String(inputFilename[startIndex...])
+                let urlAsset = URL(fileURLWithPath: rest)
+                let baseName = urlAsset.deletingPathExtension().lastPathComponent
+                outputName = "\(baseName)_1.\(settings.outputFormat.pathExtension)"
+            }
+        }
+        
+        if outputName.isEmpty {
+            let baseName = inputURL.deletingPathExtension().lastPathComponent
+            outputName = "\(baseName)_1.\(settings.outputFormat.pathExtension)"
+        }
+        
+        let outputURL = tempDir.appendingPathComponent(outputName)
         
         // 如果文件已存在，先删除
         self.deleteFile(at: outputURL)

@@ -25,7 +25,7 @@ struct ContentView: View {
                     // 1. 照片硬件压缩路由分支
                     switch photoViewModel.state {
                     case .loadingAsset:
-                        VStack(spacing: 20) {
+                        VStack(spacing: 24) {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .blue))
                                 .scaleEffect(1.5)
@@ -33,6 +33,20 @@ struct ContentView: View {
                             Text("正在提取拷贝原片像素元数据...")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
+                            
+                            Button(action: {
+                                withAnimation {
+                                    photoViewModel.cleanup()
+                                }
+                            }) {
+                                Text("返回")
+                                    .font(.headline)
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white.opacity(0.06))
+                                    .cornerRadius(12)
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
@@ -73,7 +87,7 @@ struct ContentView: View {
                     // 2. 视频硬件压缩路由分支
                     switch viewModel.state {
                     case .loadingAsset:
-                        VStack(spacing: 20) {
+                        VStack(spacing: 24) {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .purple))
                                 .scaleEffect(1.5)
@@ -81,6 +95,20 @@ struct ContentView: View {
                             Text("正在安全提取并拷贝原片元数据...")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
+                            
+                            Button(action: {
+                                withAnimation {
+                                    viewModel.cleanup()
+                                }
+                            }) {
+                                Text("返回")
+                                    .font(.headline)
+                                    .foregroundColor(.purple)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white.opacity(0.06))
+                                    .cornerRadius(12)
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)

@@ -13,7 +13,7 @@ public enum VideoCodec: String, Codable, CaseIterable {
     case h264 = "H.264 (兼容性佳)"
     case hevc = "HEVC / H.265 (高效率)"
     
-    public var identifier: String {
+    nonisolated public var identifier: String {
         switch self {
         case .h264: return "avc1"
         case .hevc: return "hvc1"
@@ -21,104 +21,127 @@ public enum VideoCodec: String, Codable, CaseIterable {
     }
 }
 
-/// 预设档位
+/// 支持的视频输出容器格式
+public enum VideoContainerFormat: String, Codable, CaseIterable {
+    case mp4 = "MP4"
+    case mov = "MOV"
+    
+    nonisolated public var pathExtension: String {
+        switch self {
+        case .mp4: return "mp4"
+        case .mov: return "mov"
+        }
+    }
+}
+
+/// 预设档位（百分比代表目标文件大小占原始大小的比例）
 public enum CompressionPreset: String, Codable, CaseIterable, Identifiable {
-    case extreme = "极限压缩"
-    case standard = "标准平衡"
-    case high = "极致高清"
+    case p85 = "85%"
+    case p70 = "70%"
+    case p50 = "50%"
+    case p30 = "30%"
+    case p15 = "15%"
     case custom = "自定义"
     
     public var id: String { self.rawValue }
     
     public var displayName: String { self.rawValue }
-    
-    public var iconName: String {
-        switch self {
-        case .extreme: return "scalemass"
-        case .standard: return "checkmark.seal.fill"
-        case .high: return "sparkles"
-        case .custom: return "slider.horizontal.3"
-        }
-    }
-    
-    public var description: String {
-        switch self {
-        case .extreme: return "极小体积，适合快速分享"
-        case .standard: return "完美平衡，保留最佳视听体验"
-        case .high: return "超高保真，极细微画质损耗"
-        case .custom: return "自由调整分辨率与比特率"
-        }
-    }
 }
 
 /// 视频压缩的详细配置参数
 public struct CompressionSettings: Codable, Equatable {
     public var preset: CompressionPreset
     public var codec: VideoCodec
+    public var outputFormat: VideoContainerFormat // 输出容器格式
     public var resolutionScale: CGFloat // 0.1 ~ 1.0 (比例)
     public var frameRate: Int // 0 表示保持原样，或者 24, 30, 60
     public var compressAudio: Bool
     public var audioBitrate: Double // 比特率 (bps)
-    public var customVideoBitrateMultiplier: Double // 自定义比特率系数 (0.1 ~ 2.0)，默认为 1.0
+    public var customVideoBitrateMultiplier: Double // 自定义比特率系数 (0.1 ~ 2.0)
+    public var keepMetadata: Bool // 是否保留元数据（拍摄日期、GPS等）
     
     public init(
-        preset: CompressionPreset = .standard,
+        preset: CompressionPreset = .p70,
         codec: VideoCodec = .hevc,
+        outputFormat: VideoContainerFormat = .mp4,
         resolutionScale: CGFloat = 0.75,
-        frameRate: Int = 30,
-        compressAudio: Bool = true,
+        frameRate: Int = 0,
+        compressAudio: Bool = false,
         audioBitrate: Double = 128_000,
-        customVideoBitrateMultiplier: Double = 1.0
+        customVideoBitrateMultiplier: Double = 1.0,
+        keepMetadata: Bool = true
     ) {
         self.preset = preset
         self.codec = codec
+        self.outputFormat = outputFormat
         self.resolutionScale = resolutionScale
         self.frameRate = frameRate
         self.compressAudio = compressAudio
         self.audioBitrate = audioBitrate
         self.customVideoBitrateMultiplier = customVideoBitrateMultiplier
+        self.keepMetadata = keepMetadata
     }
     
     /// 获取当前预设对应的默认设置
     public static func settings(for preset: CompressionPreset) -> CompressionSettings {
         switch preset {
-        case .extreme:
+        case .p85:
             return CompressionSettings(
-                preset: .extreme,
+                preset: .p85,
                 codec: .hevc,
-                resolutionScale: 0.50, // 540p/720p 级别
-                frameRate: 24,         // 降低帧率
-                compressAudio: true,
-                audioBitrate: 64_000,  // 音频极限压缩
-                customVideoBitrateMultiplier: 0.5 // 比特率系数非常低
+                resolutionScale: 1.0,
+                frameRate: 0,
+                compressAudio: false,
+                audioBitrate: 128_000,
+                customVideoBitrateMultiplier: 0.85
             )
-        case .standard:
+        case .p70:
             return CompressionSettings(
-                preset: .standard,
+                preset: .p70,
                 codec: .hevc,
-                resolutionScale: 0.75, // 约 1080p 级别
+                resolutionScale: 1.0,
+                frameRate: 0,
+                compressAudio: false,
+                audioBitrate: 128_000,
+                customVideoBitrateMultiplier: 0.65
+            )
+        case .p50:
+            return CompressionSettings(
+                preset: .p50,
+                codec: .hevc,
+                resolutionScale: 0.75,
                 frameRate: 30,
-                compressAudio: true,
-                audioBitrate: 128_000, // 高质量 AAC
-                customVideoBitrateMultiplier: 1.0 // 黄金平衡点
+                compressAudio: false,
+                audioBitrate: 128_000,
+                customVideoBitrateMultiplier: 0.50
             )
-        case .high:
+        case .p30:
             return CompressionSettings(
-                preset: .high,
+                preset: .p30,
                 codec: .hevc,
-                resolutionScale: 1.0,  // 保持原分辨率
-                frameRate: 0,          // 保持原帧率
-                compressAudio: true,
-                audioBitrate: 192_000, // 高保真音频
-                customVideoBitrateMultiplier: 1.6 // 高比特率确保无损感
+                resolutionScale: 0.60,
+                frameRate: 30,
+                compressAudio: false,
+                audioBitrate: 96_000,
+                customVideoBitrateMultiplier: 0.30
+            )
+        case .p15:
+            return CompressionSettings(
+                preset: .p15,
+                codec: .hevc,
+                resolutionScale: 0.50,
+                frameRate: 24,
+                compressAudio: false,
+                audioBitrate: 64_000,
+                customVideoBitrateMultiplier: 0.15
             )
         case .custom:
             return CompressionSettings(
                 preset: .custom,
                 codec: .hevc,
                 resolutionScale: 0.75,
-                frameRate: 30,
-                compressAudio: true,
+                frameRate: 0,
+                compressAudio: false,
                 audioBitrate: 128_000,
                 customVideoBitrateMultiplier: 1.0
             )

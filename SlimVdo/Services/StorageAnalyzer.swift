@@ -12,12 +12,12 @@ import Combine
 /// 手机真实存储空间分析服务
 public final class StorageAnalyzer: ObservableObject {
     
-    @Published public private(set) var totalDiskSpace: Int64 = 64 * 1024 * 1024 * 1024 // 默认 64GB
-    @Published public private(set) var freeDiskSpace: Int64 = 20 * 1024 * 1024 * 1024  // 默认 20GB
+    @Published public private(set) var totalDiskSpace: Int64 = 64 * 1024 * 1024 * 1024
+    @Published public private(set) var freeDiskSpace: Int64 = 20 * 1024 * 1024 * 1024
     @Published public private(set) var photoCount: Int = 0
     @Published public private(set) var videoCount: Int = 0
     
-    // 分类占用估计
+    // 分类占用
     @Published public private(set) var estimatedPhotosSize: Int64 = 0
     @Published public private(set) var estimatedVideosSize: Int64 = 0
     
@@ -29,28 +29,52 @@ public final class StorageAnalyzer: ObservableObject {
         refreshStorageInfo()
     }
     
+    /// 向上对齐到标准的 iPhone 商业容量
+    private func roundToMarketedCapacity(_ bytes: Int64) -> Int64 {
+        let gb = Double(bytes) / (1024.0 * 1024.0 * 1024.0)
+        let standardCapacities: [Double] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+        
+        for cap in standardCapacities {
+            if gb <= cap * 1.1 {
+                return Int64(cap * 1024 * 1024 * 1024)
+            }
+        }
+        return bytes
+    }
+    
     /// 触发重新分析物理容量和相册媒体分布
     public func refreshStorageInfo() {
-        // 1. 获取系统真实物理磁盘大小
-        let path = NSHomeDirectory()
-        do {
-            let attrs = try FileManager.default.attributesOfFileSystem(forPath: path)
-            if let space = attrs[.systemSize] as? Int64 {
-                self.totalDiskSpace = space
+        let fileManager = FileManager.default
+        if let docURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).last {
+            do {
+                let values = try docURL.resourceValues(forKeys: [
+                    .volumeTotalCapacityKey,
+                    .volumeAvailableCapacityForImportantUsageKey
+                ])
+                if let total = values.volumeTotalCapacity {
+                    self.totalDiskSpace = roundToMarketedCapacity(Int64(total))
+                }
+                if let free = values.volumeAvailableCapacityForImportantUsage {
+                    self.freeDiskSpace = free
+                }
+            } catch {
+                print("⚠️ Volume resource values failed: \(error)")
+                let path = NSHomeDirectory()
+                if let attrs = try? fileManager.attributesOfFileSystem(forPath: path) {
+                    if let space = attrs[.systemSize] as? Int64 {
+                        self.totalDiskSpace = roundToMarketedCapacity(space)
+                    }
+                    if let free = attrs[.systemFreeSize] as? Int64 {
+                        self.freeDiskSpace = free
+                    }
+                }
             }
-            if let free = attrs[.systemFreeSize] as? Int64 {
-                self.freeDiskSpace = free
-            }
-        } catch {
-            print("⚠️ 无法获取真实设备容量: \(error.localizedDescription)")
         }
         
-        // 2. 检查照片库授权并统计张数个数
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if status == .authorized || status == .limited {
             self.scanPhotoLibrary()
         } else {
-            // 没有权限则请求权限并统计
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
                 if newStatus == .authorized || newStatus == .limited {
                     self?.scanPhotoLibrary()
@@ -64,49 +88,49 @@ public final class StorageAnalyzer: ObservableObject {
         return max(0, totalDiskSpace - freeDiskSpace)
     }
     
-    /// 系统及其他 App 占用空间 (已用空间扣除相册后)
+    /// 系统及其他 App 占用空间
     public var otherAppSpace: Int64 {
         let mediaSum = estimatedPhotosSize + estimatedVideosSize
         return max(0, usedDiskSpace - mediaSum)
     }
     
-    /// 扫描系统相册
+    /// 全量遍历扫描系统相册，精确计算每张照片和每个视频的物理文件大小
     private func scanPhotoLibrary() {
-        // Photos 框架的 fetch 方法在后台查询非常迅速，返回的是元数据列表，不占用内存
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            // 极速获取照片与视频资产总数
-            let photos = PHAsset.fetchAssets(with: .image, options: nil)
-            let videos = PHAsset.fetchAssets(with: .video, options: nil)
+            let options = PHFetchOptions()
+            let photos = PHAsset.fetchAssets(with: .image, options: options)
+            let videos = PHAsset.fetchAssets(with: .video, options: options)
             
-            // 统计数量
             let pCount = photos.count
             let vCount = videos.count
             
-            // 智能拟合字节大小
-            // 在 iOS 平均场景下，一张普通照片（包含 HEIC/JPEG）约为 3.5MB
-            let pEstimatedSize = Int64(pCount) * 3_500_000
-            // 一个手机视频平均约为 40MB
-            let vEstimatedSize = Int64(vCount) * 40_000_000
+            // 全量遍历所有照片，精确累加每张的物理 fileSize
+            var totalPhotoBytes: Int64 = 0
+            for i in 0..<pCount {
+                let asset = photos.object(at: i)
+                let resources = PHAssetResource.assetResources(for: asset)
+                if let size = (resources.first?.value(forKey: "fileSize") as? NSNumber)?.int64Value {
+                    totalPhotoBytes += size
+                }
+            }
             
-            // 安全边界处理：确保估计的总和不超出设备已用空间
-            let systemUsed = self.usedDiskSpace
-            var finalPEst = pEstimatedSize
-            var finalVEst = vEstimatedSize
-            
-            if (pEstimatedSize + vEstimatedSize) > systemUsed {
-                // 如果超标，等比压缩拟合值，预留 20% 空间给系统
-                let scale = Double(systemUsed) * 0.8 / Double(pEstimatedSize + vEstimatedSize)
-                finalPEst = Int64(Double(pEstimatedSize) * scale)
-                finalVEst = Int64(Double(vEstimatedSize) * scale)
+            // 全量遍历所有视频，精确累加每个的物理 fileSize
+            var totalVideoBytes: Int64 = 0
+            for i in 0..<vCount {
+                let asset = videos.object(at: i)
+                let resources = PHAssetResource.assetResources(for: asset)
+                if let size = (resources.first?.value(forKey: "fileSize") as? NSNumber)?.int64Value {
+                    totalVideoBytes += size
+                }
             }
             
             DispatchQueue.main.async {
                 self.photoCount = pCount
                 self.videoCount = vCount
-                self.estimatedPhotosSize = finalPEst
-                self.estimatedVideosSize = finalVEst
+                self.estimatedPhotosSize = totalPhotoBytes
+                self.estimatedVideosSize = totalVideoBytes
             }
         }
     }

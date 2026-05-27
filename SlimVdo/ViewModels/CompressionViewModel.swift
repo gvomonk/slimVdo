@@ -56,7 +56,7 @@ public final class CompressionViewModel: ObservableObject {
     // MARK: - Published Properties (沙盒与数据驱动)
     
     @Published public var state: CompressionState = .idle
-    @Published public var settings = CompressionSettings.settings(for: .standard)
+    @Published public var settings = CompressionSettings.settings(for: .p70)
     
     // 所选视频源元数据
     @Published public var videoTitle: String = ""
@@ -82,6 +82,24 @@ public final class CompressionViewModel: ObservableObject {
     public var originalURLs: [URL] = []
     public var compressedURLs: [URL] = []
     public var originalAssets: [PHAsset] = []
+    
+    @Published public var originalBitrate: Double = 0.0 // in bps
+    @Published public var originalAudioBitrate: Double = 128_000.0 // in bps
+    
+    /// 原始文件的容器格式（从文件扩展名推断）
+    public var originalContainerFormat: VideoContainerFormat {
+        guard let url = originalURL else { return .mp4 }
+        return url.pathExtension.lowercased() == "mov" ? .mov : .mp4
+    }
+    
+    /// 原始文件的编码格式（从 codecUsed 推断）
+    public var originalCodec: VideoCodec {
+        let codec = codecUsed.lowercased()
+        if codec.contains("hevc") || codec.contains("hvc1") || codec.contains("h.265") || codec.contains("265") {
+            return .hevc
+        }
+        return .h264
+    }
     
     // 计时器辅助
     private var compressionStartTime: Date?
@@ -122,7 +140,127 @@ public final class CompressionViewModel: ObservableObject {
     
     // MARK: - 视频拾取与元数据提取
     
-    /// 从 SwiftUI 相册选择器结果中异步载入视频并解析元数据
+    /// 从 PHAsset 集合中高性能直连载入视频并解析元数据 (0拷贝, 毫秒级直读)
+    public func selectVideosFromAssets(_ assets: [PHAsset]) async {
+        self.state = .loadingAsset
+        
+        do {
+            var urls: [URL] = []
+            var totalSize: Int64 = 0
+            
+            let options = PHVideoRequestOptions()
+            options.isNetworkAccessAllowed = false // 强制禁止后台自动下载 iCloud 资源，彻底屏蔽系统网络询问弹窗
+            options.deliveryMode = .highQualityFormat
+            
+            for asset in assets {
+                let avAsset = try await requestAVAsset(for: asset, options: options)
+                guard let urlAsset = avAsset as? AVURLAsset else {
+                    throw NSError(domain: "CompressionViewModel", code: -12, userInfo: [NSLocalizedDescriptionKey: "iCloudCloudOffline"])
+                }
+                
+                // 提取原文件名，支持原名带 _1 命名逻辑
+                let resources = PHAssetResource.assetResources(for: asset)
+                let originalFilename = resources.first?.originalFilename ?? "video.mp4"
+                let baseName = (originalFilename as NSString).deletingPathExtension
+                let ext = (originalFilename as NSString).pathExtension.lowercased()
+                
+                let tempDir = FileManager.default.temporaryDirectory
+                let tempURL = tempDir.appendingPathComponent("slimvdo_source_\(UUID().uuidString)_\(baseName).\(ext)")
+                
+                if FileManager.default.fileExists(atPath: tempURL.path) {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+                try FileManager.default.copyItem(at: urlAsset.url, to: tempURL)
+                urls.append(tempURL)
+                
+                let fileSize = (resources.first?.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0
+                totalSize += fileSize
+            }
+            
+            guard !urls.isEmpty else {
+                self.state = .failed(error: "未选中任何合法的视频文件")
+                return
+            }
+            
+            self.originalURLs = urls
+            self.originalSize = totalSize
+            self.originalAssets = assets
+            
+            let firstURL = urls[0]
+            self.originalURL = firstURL
+            self.originalAsset = assets.first
+            
+            // 解析第一个视频元数据用于页面占位显示
+            let avAsset = AVURLAsset(url: firstURL)
+            guard let videoTrack = try await avAsset.loadTracks(withMediaType: .video).first else {
+                throw NSError(domain: "CompressionViewModel", code: -11, userInfo: [NSLocalizedDescriptionKey: "无法解析该视频的画面轨道"])
+            }
+            
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            let preferredTransform = try await videoTrack.load(.preferredTransform)
+            let nominalFPS = try await videoTrack.load(.nominalFrameRate)
+            let assetDuration = try await avAsset.load(.duration)
+            
+            let isPortrait = abs(preferredTransform.b) > 0.0
+            self.width = isPortrait ? naturalSize.height : naturalSize.width
+            self.height = isPortrait ? naturalSize.width : naturalSize.height
+            self.duration = CMTimeGetSeconds(assetDuration)
+            self.fps = Double(nominalFPS)
+            
+            // 提取码率
+            let rawBitrate = try? await videoTrack.load(.estimatedDataRate)
+            let calculatedBitrate = Double(totalSize * 8) / duration
+            self.originalBitrate = rawBitrate != nil ? Double(rawBitrate!) : calculatedBitrate
+            
+            if urls.count > 1 {
+                self.videoTitle = "批量压缩 (\(urls.count)个视频)"
+            } else {
+                let resources = PHAssetResource.assetResources(for: assets[0])
+                self.videoTitle = resources.first?.originalFilename ?? firstURL.lastPathComponent
+            }
+            
+            let formats = try await videoTrack.load(.formatDescriptions)
+            if let firstFormat = formats.first {
+                let mediaSubType = CMFormatDescriptionGetMediaSubType(firstFormat)
+                if mediaSubType == kCMVideoCodecType_HEVC {
+                    self.codecUsed = "HEVC / H.265"
+                } else if mediaSubType == kCMVideoCodecType_H264 {
+                    self.codecUsed = "H.264 / AVC"
+                } else {
+                    self.codecUsed = "其他编码"
+                }
+            } else {
+                self.codecUsed = "未知格式"
+            }
+            self.settings = CompressionSettings.settings(for: .p70)
+            self.settings.outputFormat = self.originalContainerFormat
+            self.compressedSize = 0
+            self.compressedURL = nil
+            self.state = .configuring
+            
+        } catch {
+            let errorMsg = error.localizedDescription
+            if errorMsg.contains("iCloud") || errorMsg.contains("Cloud") || (error as NSError).code == -1 {
+                self.state = .failed(error: "本app被禁止联网\n请放心使用\n（若您正操作的文件在iCloud云端\n请先下载到本地）")
+            } else {
+                self.state = .failed(error: "加载视频失败: \(error.localizedDescription)")
+            }
+            self.cleanup()
+        }
+    }
+    
+    private func requestAVAsset(for asset: PHAsset, options: PHVideoRequestOptions) async throws -> AVAsset {
+        try await withCheckedThrowingContinuation { continuation in
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, audioMix, info in
+                if let avAsset = avAsset {
+                    continuation.resume(returning: avAsset)
+                } else {
+                    let error = NSError(domain: "CompressionViewModel", code: -10, userInfo: [NSLocalizedDescriptionKey: "iCloudCloudOffline"])
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
     @available(iOS 16.0, *)
     public func selectVideos(photosPickerItems: [PhotosPickerItem]) async {
         self.state = .loadingAsset
@@ -197,8 +335,8 @@ public final class CompressionViewModel: ObservableObject {
             } else {
                 self.codecUsed = "未知格式"
             }
-            
-            self.settings = CompressionSettings.settings(for: .standard)
+            self.settings = CompressionSettings.settings(for: .p70)
+            self.settings.outputFormat = self.originalContainerFormat
             self.compressedSize = 0
             self.compressedURL = nil
             self.state = .configuring
@@ -267,8 +405,8 @@ public final class CompressionViewModel: ObservableObject {
             } else {
                 self.codecUsed = "未知格式"
             }
-            
-            self.settings = CompressionSettings.settings(for: .standard)
+            self.settings = CompressionSettings.settings(for: .p70)
+            self.settings.outputFormat = self.originalContainerFormat
             self.compressedSize = 0
             self.compressedURL = nil
             self.state = .configuring
@@ -345,12 +483,15 @@ public final class CompressionViewModel: ObservableObject {
         
         for (idx, outputURL) in compressedURLs.enumerated() {
             let asset = idx < originalAssets.count ? originalAssets[idx] : nil
+            let keepMeta = settings.keepMetadata
             try await PHPhotoLibrary.shared().performChanges {
                 let creationRequest = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: outputURL)
-                if let orig = asset {
+                if keepMeta, let orig = asset {
                     creationRequest?.creationDate = orig.creationDate
                     creationRequest?.location = orig.location
                 }
+                // keepMetadata == false: 不设置 creationDate/location，
+                // 系统默认为当前时刻，无坐标
             }
         }
         
@@ -367,9 +508,10 @@ public final class CompressionViewModel: ObservableObject {
         // 1. 首先向相册保存新压缩片
         for (idx, outputURL) in compressedURLs.enumerated() {
             let asset = idx < originalAssets.count ? originalAssets[idx] : nil
+            let keepMeta = settings.keepMetadata
             try await PHPhotoLibrary.shared().performChanges {
                 let creationRequest = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: outputURL)
-                if let orig = asset {
+                if keepMeta, let orig = asset {
                     creationRequest?.creationDate = orig.creationDate
                     creationRequest?.location = orig.location
                 }

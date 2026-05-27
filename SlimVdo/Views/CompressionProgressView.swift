@@ -179,6 +179,12 @@ struct CompressionProgressView: View {
                 }
                 .padding(.horizontal, 28)
                 
+                // 友好提示
+                Text("⚠️ 压缩过程请勿退出 App")
+                    .font(.caption2)
+                    .foregroundColor(.orange.opacity(0.7))
+                    .padding(.top, 8)
+                
                 Spacer()
             }
         }

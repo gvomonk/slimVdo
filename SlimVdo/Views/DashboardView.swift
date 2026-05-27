@@ -14,10 +14,10 @@ struct DashboardView: View {
     @ObservedObject var photoViewModel: PhotoCompressionViewModel
     @StateObject private var storageAnalyzer = StorageAnalyzer.shared
     
-    @State private var selectedVideos: [PhotosPickerItem] = []
-    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var showVideoPicker = false
+    @State private var showPhotoPicker = false
     @State private var animateBar = false
-    
+    @State private var showInfoPopover = false
     @AppStorage("isDarkMode") private var isDarkMode = true
     
     var body: some View {
@@ -57,7 +57,7 @@ struct DashboardView: View {
                     
                     // 1. Header (品牌与主题切换)
                     HStack {
-                        VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .top, spacing: 2) {
                             Text("SlimVdo")
                                 .font(.system(size: 34, weight: .bold, design: .rounded))
                                 .foregroundStyle(
@@ -67,6 +67,17 @@ struct DashboardView: View {
                                         endPoint: .bottomTrailing
                                     )
                                 )
+                            
+                            Button(action: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    showInfoPopover = true
+                                }
+                            }) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.3) : .black.opacity(0.3))
+                            }
+                            .offset(y: 2)
                         }
                         Spacer()
                         
@@ -240,12 +251,9 @@ struct DashboardView: View {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                             
                             // 卡片一：视频压缩
-                            PhotosPicker(
-                                selection: $selectedVideos,
-                                maxSelectionCount: 20,
-                                matching: .videos,
-                                photoLibrary: .shared()
-                            ) {
+                            Button(action: {
+                                showVideoPicker = true
+                            }) {
                                 FeatureCard(
                                     title: "视频压缩",
                                     icon: "video.fill",
@@ -253,21 +261,18 @@ struct DashboardView: View {
                                     isDarkMode: isDarkMode
                                 )
                             }
-                            .onChange(of: selectedVideos, perform: { newItems in
-                                guard !newItems.isEmpty else { return }
-                                Task {
-                                    await viewModel.selectVideos(photosPickerItems: newItems)
-                                    selectedVideos = []
+                            .sheet(isPresented: $showVideoPicker) {
+                                CustomMediaPicker(mediaType: .video, maxSelection: 20) { assets in
+                                    Task {
+                                        await viewModel.selectVideosFromAssets(assets)
+                                    }
                                 }
-                            })
+                            }
                             
                             // 卡片二：照片压缩
-                            PhotosPicker(
-                                selection: $selectedPhotos,
-                                maxSelectionCount: 50,
-                                matching: .images,
-                                photoLibrary: .shared()
-                            ) {
+                            Button(action: {
+                                showPhotoPicker = true
+                            }) {
                                 FeatureCard(
                                     title: "照片压缩",
                                     icon: "photo.fill",
@@ -275,17 +280,17 @@ struct DashboardView: View {
                                     isDarkMode: isDarkMode
                                 )
                             }
-                            .onChange(of: selectedPhotos, perform: { newItems in
-                                guard !newItems.isEmpty else { return }
-                                Task {
-                                    await photoViewModel.selectPhotos(photosPickerItems: newItems)
-                                    selectedPhotos = []
+                            .sheet(isPresented: $showPhotoPicker) {
+                                CustomMediaPicker(mediaType: .image, maxSelection: 50) { assets in
+                                    Task {
+                                        await photoViewModel.selectPhotosFromAssets(assets)
+                                    }
                                 }
-                            })
+                            }
                             
-                            // 卡片三：智能清理占位卡片 (磨砂 Coming Soon)
+                            // 卡片三：占位卡片 (磨砂 Coming Soon)
                             FeatureCard(
-                                title: "智能清理",
+                                title: "Coming Soon",
                                 icon: "wand.and.stars",
                                 gradient: LinearGradient(colors: [Color.white.opacity(0.04), Color.white.opacity(0.02)], startPoint: .topLeading, endPoint: .bottomTrailing),
                                 isPlaceholder: true,
@@ -296,6 +301,142 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 32)
                 }
+            }
+            
+            // 7. Glassmorphism Copyright & Open Source Info Overlay Modal
+            if showInfoPopover {
+                ZStack {
+                    // Dark blurred background
+                    Color.black.opacity(0.6)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showInfoPopover = false
+                            }
+                        }
+                    
+                    // Glassmorphic Modal Card
+                    VStack(spacing: 20) {
+                        // App Brand Header
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(LinearGradient(colors: [.purple, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                    .frame(width: 64, height: 64)
+                                    .shadow(color: .purple.opacity(0.3), radius: 8)
+                                
+                                Image("AppLogo_circle")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 64, height: 64)
+                            }
+                            
+                            Text("SlimVdo")
+                                .font(.system(size: 22, weight: .black, design: .rounded))
+                                .foregroundColor(.white)
+                            
+                            Text("Version 1.0.0")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.top, 10)
+                        
+                        Text("完全离线 ・ 绝对隐私 ・ 小巧高效\n的视频和照片压缩工具")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(5)
+                        
+                        // License Content
+                        VStack(spacing: 14) {
+                            // Section 1: GPL v3
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.purple)
+                                
+                                Text("GNU GPL v3 开源, 随时审查")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            
+                            // Section 2: Commercial License
+                            HStack(spacing: 8) {
+                                Image(systemName: "shield.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.orange)
+                                
+                                Text("禁止非授权的商业用途")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            
+                            // Section 3: Community & Support
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.blue)
+                                
+                                HStack(spacing: 8) {
+                                    Link("GitHub", destination: URL(string: "https://github.com/gvomonk/slimVdo")!)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.blue)
+                                    
+                                    Text("•")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.white.opacity(0.3))
+                                    
+                                    Link("Email", destination: URL(string: "mailto:gvomonk@taddram.site")!)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                        .padding(.horizontal, 24)
+                        
+                        Divider()
+                            .background(Color.white.opacity(0.1))
+                            .padding(.horizontal)
+                        
+                        // Close Action Button
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showInfoPopover = false
+                            }
+                        }) {
+                            Text("我知道了")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(
+                                    LinearGradient(colors: [.purple, .indigo], startPoint: .leading, endPoint: .trailing)
+                                )
+                                .cornerRadius(12)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 10)
+                    }
+                    .padding(.vertical, 20)
+                    .frame(width: 320)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(Color(red: 0.1, green: 0.1, blue: 0.15).opacity(0.65))
+                            .background(.ultraThinMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: 20)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+                .ignoresSafeArea()
+                .zIndex(99)
             }
         }
     }
@@ -428,4 +569,12 @@ struct FeatureCard: View {
                 .stroke(borderColor, lineWidth: 1)
         )
     }
+}
+
+@available(iOS 16.0, *)
+#Preview {
+    DashboardView(
+        viewModel: CompressionViewModel(),
+        photoViewModel: PhotoCompressionViewModel()
+    )
 }

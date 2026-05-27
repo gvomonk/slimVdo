@@ -21,11 +21,7 @@ public struct CompressionProgressUpdate: Sendable {
 @available(iOS 15.0, *)
 public actor VideoCompressionActor {
     
-    private var isCancelled = false
-    private let ciContext = CIContext(options: [
-        CIContextOption.useSoftwareRenderer: false, // 强制 GPU 硬件渲染
-        CIContextOption.priorityRequestLow: true     // 后台低优先级，避免抢占 UI 线程
-    ])
+    nonisolated(unsafe) private var isCancelled = false
     
     public init() {}
     
@@ -91,13 +87,14 @@ public actor VideoCompressionActor {
         let baseTargetBitrate = Double(sourceBitrate) * Double(pixelRatio) * codecEfficiencyMultiplier * settings.customVideoBitrateMultiplier
         
         // 设置码率上下限安全边界，防止画质崩溃或体积反而变大
-        let minBitrate: Double = 800_000 // 最低 800 Kbps 保证基本轮廓
+        let minBitrate: Double = 400_000 // 最低 400 Kbps 保证基本轮廓
         let maxBitrate: Double = min(Double(sourceBitrate) * 0.9, 25_000_000) // 最高不超原码率的 90%
         let finalVideoBitrate = max(minBitrate, min(baseTargetBitrate, maxBitrate))
         
         // 4. 创建 AVAssetReader 和 AVAssetWriter
         let reader = try AVAssetReader(asset: asset)
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let writerFileType: AVFileType = settings.outputFormat == .mov ? .mov : .mp4
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: writerFileType)
         
         // 5. 配置视频输入输出
         // 解压视频设置（使用硬件最高效的 420YpCbCr8BiPlanar 格式，即 NV12）
@@ -147,41 +144,64 @@ public actor VideoCompressionActor {
             throw NSError(domain: "VideoCompressionActor", code: -3, userInfo: [NSLocalizedDescriptionKey: "无法添加视频写入输入"])
         }
         
-        // 6. 配置音频输入输出 (AAC 重新编码)
+        // 6. 配置音频输入输出 (根据设置选择 AAC 重新编码或原样透传)
         var readerAudioOutput: AVAssetReaderTrackOutput?
         var writerAudioInput: AVAssetWriterInput?
         
-        if let audio = audioTrack, settings.compressAudio {
-            // 解压音频设置 (解压为 PCM)
-            let readerAudioSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatLinearPCM
-            ]
-            let audioOutput = AVAssetReaderTrackOutput(track: audio, outputSettings: readerAudioSettings)
-            audioOutput.alwaysCopiesSampleData = false
-            if reader.canAdd(audioOutput) {
-                reader.add(audioOutput)
-                readerAudioOutput = audioOutput
+        if let audio = audioTrack {
+            // 音频码率为 0 时，完全跳过音频轨道（生成无声视频）
+            if settings.audioBitrate > 0 {
+                if settings.compressAudio {
+                    // 压缩音频：解压音频设置 (PCM)
+                    let readerAudioSettings: [String: Any] = [
+                        AVFormatIDKey: kAudioFormatLinearPCM
+                    ]
+                    let audioOutput = AVAssetReaderTrackOutput(track: audio, outputSettings: readerAudioSettings)
+                    audioOutput.alwaysCopiesSampleData = false
+                    if reader.canAdd(audioOutput) {
+                        reader.add(audioOutput)
+                        readerAudioOutput = audioOutput
+                    }
+                    
+                    // 压缩音频设置 (AAC)
+                    let writerAudioSettings: [String: Any] = [
+                        AVFormatIDKey: kAudioFormatMPEG4AAC,
+                        AVSampleRateKey: 44100,
+                        AVNumberOfChannelsKey: 2,
+                        AVEncoderBitRateKey: Int(settings.audioBitrate)
+                    ]
+                    let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerAudioSettings)
+                    audioInput.expectsMediaDataInRealTime = false
+                    if writer.canAdd(audioInput) {
+                        writer.add(audioInput)
+                        writerAudioInput = audioInput
+                    }
+                } else {
+                    // 透传原音频
+                    let audioOutput = AVAssetReaderTrackOutput(track: audio, outputSettings: nil)
+                    audioOutput.alwaysCopiesSampleData = false
+                    if reader.canAdd(audioOutput) {
+                        reader.add(audioOutput)
+                        readerAudioOutput = audioOutput
+                    }
+                    
+                    let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+                    audioInput.expectsMediaDataInRealTime = false
+                    if writer.canAdd(audioInput) {
+                        writer.add(audioInput)
+                        writerAudioInput = audioInput
+                    }
+                }
             }
-            
-            // 压缩音频设置 (AAC)
-            let writerAudioSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 44100,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: Int(settings.audioBitrate)
-            ]
-            let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerAudioSettings)
-            audioInput.expectsMediaDataInRealTime = false
-            if writer.canAdd(audioInput) {
-                writer.add(audioInput)
-                writerAudioInput = audioInput
-            }
+            // audioBitrate == 0: 不添加任何音频轨道，生成静音视频
         }
         
         // 7. 处理拍摄日期与 GPS 定位等元数据拷贝
-        let originalMetadata = try await asset.load(.metadata)
-        if !originalMetadata.isEmpty {
-            writer.metadata = originalMetadata
+        if settings.keepMetadata {
+            let originalMetadata = try await asset.load(.metadata)
+            if !originalMetadata.isEmpty {
+                writer.metadata = originalMetadata
+            }
         }
         
         // 8. 启动 Reader & Writer
@@ -201,6 +221,12 @@ public actor VideoCompressionActor {
         
         if needsScaling {
             pixelBufferPool = createPixelBufferPool(width: Int(targetWidth), height: Int(targetHeight))
+        }
+        
+        // 创建 VTPixelTransferSession 会话进行底层的纯硬件缩放，彻底消除 OOM 内存积累
+        var transferSession: VTPixelTransferSession?
+        if needsScaling {
+            VTPixelTransferSessionCreate(allocator: kCFAllocatorDefault, pixelTransferSessionOut: &transferSession)
         }
         
         // 10. 核心循环：多路并行读取与写入
@@ -225,17 +251,20 @@ public actor VideoCompressionActor {
         // A. 视频写入循环
         group.enter()
         writerVideoInput.requestMediaDataWhenReady(on: videoQueue) {
-            autoreleasepool {
-                while writerVideoInput.isReadyForMoreMediaData {
+            var shouldExit = false
+            while !shouldExit && writerVideoInput.isReadyForMoreMediaData {
+                autoreleasepool {
                     if self.isCancelled {
                         writerVideoInput.markAsFinished()
                         group.leave()
+                        shouldExit = true
                         return
                     }
                     
                     guard let sampleBuffer = readerVideoOutput.copyNextSampleBuffer() else {
                         writerVideoInput.markAsFinished()
                         group.leave()
+                        shouldExit = true
                         return
                     }
                     
@@ -246,7 +275,7 @@ public actor VideoCompressionActor {
                         frameIndexAccumulator += 1.0
                         if frameIndexAccumulator < frameKeepInterval {
                             // 丢弃这一帧，继续读取下一帧
-                            continue
+                            return
                         } else {
                             frameIndexAccumulator -= frameKeepInterval
                         }
@@ -258,33 +287,27 @@ public actor VideoCompressionActor {
                     // 获取像素缓冲区
                     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
                         // 损坏的帧，继续
-                        continue
+                        return
                     }
                     
                     var outputPixelBuffer = pixelBuffer
                     
-                    // 如果需要硬件缩放，调用 Core Image 在 GPU 中进行高保真缩放
-                    if needsScaling, let pool = pixelBufferPool {
+                    // 如果需要硬件缩放，调用 VideoToolbox 进行底层的极致硬件缩放，零内存缓存泄露
+                    if needsScaling, let pool = pixelBufferPool, let session = transferSession {
                         var scaledBuffer: CVPixelBuffer?
                         let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &scaledBuffer)
                         
                         if status == kCVReturnSuccess, let destBuffer = scaledBuffer {
-                            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-                            
-                            // 计算缩放比例 (宽度/高度等比缩放)
-                            let scaleX = targetWidth / originalWidth
-                            let scaleY = targetHeight / originalHeight
-                            let scaledImage = ciImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-                            
-                            // 硬件加速渲染至目标 pixelBuffer
-                            self.ciContext.render(scaledImage, to: destBuffer)
-                            outputPixelBuffer = destBuffer
+                            let transferStatus = VTPixelTransferSessionTransferImage(session, from: pixelBuffer, to: destBuffer)
+                            if transferStatus == noErr {
+                                outputPixelBuffer = destBuffer
+                            }
                         }
                     }
                     
                     // 将处理完的像素帧，利用自定义 AVAssetWriterInputPixelBufferAdaptor 提交，
                     // 或直接根据原 SampleBuffer 的 timing 构建新 SampleBuffer 提交。
-                    // 这里我们为了保证简单和极高兼容性，直接重新用原始 sampleBuffer 的时长和参数写回：
+                    // 这里我们为了保证简单和极高兼容性，直接重新用原始 sampleBuffer 的时长 and 参数写回：
                     var timingInfo = CMSampleTimingInfo(
                         duration: CMSampleBufferGetDuration(sampleBuffer),
                         presentationTimeStamp: presentationTime,
@@ -333,26 +356,40 @@ public actor VideoCompressionActor {
         if let readerAudio = readerAudioOutput, let writerAudio = writerAudioInput {
             group.enter()
             writerAudio.requestMediaDataWhenReady(on: audioQueue) {
-                while writerAudio.isReadyForMoreMediaData {
-                    if self.isCancelled {
-                        writerAudio.markAsFinished()
-                        group.leave()
-                        return
+                var shouldExit = false
+                while !shouldExit && writerAudio.isReadyForMoreMediaData {
+                    autoreleasepool {
+                        if self.isCancelled {
+                            writerAudio.markAsFinished()
+                            group.leave()
+                            shouldExit = true
+                            return
+                        }
+                        
+                        guard let sampleBuffer = readerAudio.copyNextSampleBuffer() else {
+                            writerAudio.markAsFinished()
+                            group.leave()
+                            shouldExit = true
+                            return
+                        }
+                        
+                        writerAudio.append(sampleBuffer)
                     }
-                    
-                    guard let sampleBuffer = readerAudio.copyNextSampleBuffer() else {
-                        writerAudio.markAsFinished()
-                        group.leave()
-                        return
-                    }
-                    
-                    writerAudio.append(sampleBuffer)
                 }
             }
         }
         
-        // 等待两条写入流水线均结束
-        group.wait()
+        // 等待两条写入流水线均结束（使用非阻塞式异步等待，释放 Actor 线程以响应取消请求）
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            group.notify(queue: .global()) {
+                continuation.resume()
+            }
+        }
+        
+        // 释放 VTPixelTransferSession 硬件资源
+        if let session = transferSession {
+            VTPixelTransferSessionInvalidate(session)
+        }
         
         // 11. 收尾处理与文件持久化写入
         if isCancelled {
@@ -366,15 +403,12 @@ public actor VideoCompressionActor {
             throw reader.error ?? NSError(domain: "VideoCompressionActor", code: -6, userInfo: [NSLocalizedDescriptionKey: "读取视频源时发生未名错误"])
         }
         
-        // 完成写入，等待存盘
-        let writeFinishGroup = DispatchGroup()
-        writeFinishGroup.enter()
-        
-        writer.finishWriting {
-            writeFinishGroup.leave()
+        // 完成写入，等待存盘（非阻塞式异步等待）
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            writer.finishWriting {
+                continuation.resume()
+            }
         }
-        
-        writeFinishGroup.wait()
         
         if writer.status == .failed {
             throw writer.error ?? NSError(domain: "VideoCompressionActor", code: -7, userInfo: [NSLocalizedDescriptionKey: "写入压缩文件时失败"])

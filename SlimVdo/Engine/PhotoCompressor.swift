@@ -20,14 +20,33 @@ public final class PhotoCompressor {
     ///   - inputURL: 原始照片沙盒 URL
     ///   - settings: 压缩配置
     /// - Returns: 压缩 HEIC/JPEG 存盘物理地址
-    public static func compressPhoto(
+    public nonisolated static func compressPhoto(
         inputURL: URL,
         settings: PhotoCompressionSettings
     ) throws -> URL {
-        // 创建唯一临时输出路径
+        // 从原始路径提取真正的相片名，追加 _1 作为输出，保障不带多余的 UUID 串
         let tempDir = FileManager.default.temporaryDirectory
-        let uniqueName = "slimvdo_compressed_\(UUID().uuidString).\(settings.format.pathExtension)"
-        let outputURL = tempDir.appendingPathComponent(uniqueName)
+        let inputFilename = inputURL.lastPathComponent
+        var outputName = ""
+        
+        if inputFilename.hasPrefix("slimvdo_photo_source_") {
+            // "slimvdo_photo_source_" 长度为 21，UUID 长度为 36，后面下划线 1 字符共 58 字符
+            let prefixLength = 21 + 36 + 1
+            if inputFilename.count > prefixLength {
+                let startIndex = inputFilename.index(inputFilename.startIndex, offsetBy: prefixLength)
+                let rest = String(inputFilename[startIndex...])
+                let urlAsset = URL(fileURLWithPath: rest)
+                let baseName = urlAsset.deletingPathExtension().lastPathComponent
+                outputName = "\(baseName)_1.\(settings.format.pathExtension)"
+            }
+        }
+        
+        if outputName.isEmpty {
+            let baseName = inputURL.deletingPathExtension().lastPathComponent
+            outputName = "\(baseName)_1.\(settings.format.pathExtension)"
+        }
+        
+        let outputURL = tempDir.appendingPathComponent(outputName)
         
         // 彻底使用 Swift 的标准 autoreleasepool 闭包限制临时像素和元数据缓存，杜绝内存堆积
         try autoreleasepool {
@@ -41,6 +60,14 @@ public final class PhotoCompressor {
             if settings.keepMetadata {
                 if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [String: Any] {
                     metadata = properties
+                    // CreateThumbnailWithTransform 已物理旋转像素，
+                    // 必须将 Orientation 归一化为 1，否则查看器会二次旋转
+                    metadata[kCGImagePropertyOrientation as String] = 1
+                    // 同时归一化 TIFF 子字典中的 Orientation
+                    if var tiff = metadata[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
+                        tiff[kCGImagePropertyTIFFOrientation as String] = 1
+                        metadata[kCGImagePropertyTIFFDictionary as String] = tiff
+                    }
                 }
             }
             
@@ -82,10 +109,14 @@ public final class PhotoCompressor {
                 kCGImageDestinationLossyCompressionQuality as String: settings.compressionQuality
             ]
             
-            // 合并拷贝 Exif/GPS 等元数据字典
-            for (key, val) in metadata {
-                writeOptions[key] = val
+            if settings.keepMetadata {
+                // 把元数据（已归一化 Orientation）合入 writeOptions
+                for (key, val) in metadata {
+                    writeOptions[key] = val
+                }
             }
+            // keepMetadata == false 时：不写入任何元数据键，
+            // CGImageDestination 默认不含 GPS/Exif/TIFF，等同于彻底抹除
             
             CGImageDestinationAddImage(destination, scaledImage, writeOptions as CFDictionary)
             

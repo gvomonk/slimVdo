@@ -32,7 +32,7 @@ struct CompressionResultView: View {
             VStack(spacing: 0) {
                 
                 // 1. Success Header
-                VStack(spacing: 6) {
+                HStack(spacing: 12) {
                     ZStack {
                         Circle()
                             .fill(Color.emeraldGreen.opacity(0.12))
@@ -54,22 +54,7 @@ struct CompressionResultView: View {
                     VStack(spacing: 24) {
                         
                         // 2. Final Stats Card
-                        VStack(spacing: 12) {
-                            HStack {
-                                Text("大小对比")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                Text(String(format: "压缩率 -%.1f%%", viewModel.actualSavingsRatio * 100))
-                                    .font(.caption)
-                                    .fontWeight(.black)
-                                    .foregroundColor(.emeraldGreen)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.emeraldGreen.opacity(0.12))
-                                    .cornerRadius(6)
-                            }
-                            
+                        VStack(spacing: 16) {
                             HStack(alignment: .bottom) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("原大小")
@@ -82,10 +67,19 @@ struct CompressionResultView: View {
                                 
                                 Spacer()
                                 
-                                Image(systemName: "arrow.right")
-                                    .font(.title3)
-                                    .foregroundColor(.purple)
-                                    .padding(.bottom, 4)
+                                VStack(spacing: 4) {
+                                    Text(String(format: "-%.0f%%", viewModel.actualSavingsRatio * 100))
+                                        .font(.system(size: 11, weight: .black))
+                                        .foregroundColor(.emeraldGreen)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(Color.emeraldGreen.opacity(0.12))
+                                        .cornerRadius(6)
+                                    
+                                    Image(systemName: "arrow.right")
+                                        .font(.title3)
+                                        .foregroundColor(.purple)
+                                }
                                 
                                 Spacer()
                                 
@@ -99,6 +93,29 @@ struct CompressionResultView: View {
                                         .foregroundColor(.white)
                                 }
                             }
+                            
+                            if viewModel.originalURLs.count == 1 {
+                                // 分辨率
+                                CompactComparisonRow(
+                                    label: "分辨率",
+                                    leftValue: "\(Int(viewModel.width))x\(Int(viewModel.height))",
+                                    rightValue: "\(Int(viewModel.width * viewModel.settings.resolutionScale))x\(Int(viewModel.height * viewModel.settings.resolutionScale))"
+                                )
+                                
+                                // 码率
+                                CompactComparisonRow(
+                                    label: "码率",
+                                    leftValue: String(format: "%.1f Mbps", viewModel.originalBitrate / 1_000_000.0),
+                                    rightValue: String(format: "%.1f Mbps", (viewModel.originalBitrate * viewModel.settings.customVideoBitrateMultiplier) / 1_000_000.0)
+                                )
+                                
+                                // 帧率
+                                CompactComparisonRow(
+                                    label: "帧率",
+                                    leftValue: "\(Int(viewModel.fps)) FPS",
+                                    rightValue: viewModel.settings.frameRate == 0 ? "\(Int(viewModel.fps)) FPS" : "\(viewModel.settings.frameRate) FPS"
+                                )
+                            }
                         }
                         .padding(16)
                         .background(Color.white.opacity(0.02))
@@ -111,31 +128,21 @@ struct CompressionResultView: View {
                         
                         // 3. Double Player Comparator (核心：双路画质同步对比播放器)
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("画质比对")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                Spacer()
-                                Text(showOriginal ? "原画" : "压缩后")
-                                    .font(.caption2)
-                                    .foregroundColor(.purple)
-                            }
-                            .padding(.horizontal)
+                            let videoRatio = viewModel.width > 0 && viewModel.height > 0 ? viewModel.width / viewModel.height : 16.0 / 9.0
                             
                             // 播放器容器
                             ZStack(alignment: .bottom) {
                                 RoundedRectangle(cornerRadius: 20)
                                     .fill(Color.black)
-                                    .aspectRatio(16/9, contentMode: .fit)
+                                    .aspectRatio(videoRatio, contentMode: .fit)
                                 
                                 if showOriginal, let player = originalPlayer {
                                     VideoPlayer(player: player)
-                                        .aspectRatio(16/9, contentMode: .fit)
+                                        .aspectRatio(videoRatio, contentMode: .fit)
                                         .cornerRadius(20)
                                 } else if let player = compressedPlayer {
                                     VideoPlayer(player: player)
-                                        .aspectRatio(16/9, contentMode: .fit)
+                                        .aspectRatio(videoRatio, contentMode: .fit)
                                         .cornerRadius(20)
                                 }
                                 
@@ -150,12 +157,12 @@ struct CompressionResultView: View {
                                     
                                     Spacer()
                                     
-                                    // 按住/点击切换“原画”与“压缩后”
+                                    // 按住/点击切换“原视频”与“压缩视频”
                                     Button(action: toggleCompareAsset) {
                                         HStack(spacing: 4) {
                                             Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right.fill")
                                                 .font(.caption2)
-                                            Text(showOriginal ? "压缩图" : "原图")
+                                            Text(showOriginal ? "before" : "after")
                                                 .font(.caption)
                                                 .fontWeight(.bold)
                                         }
@@ -171,6 +178,7 @@ struct CompressionResultView: View {
                                 .background(LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom))
                                 .cornerRadius(20)
                             }
+                            .frame(maxHeight: 400)
                             .padding(.horizontal)
                             .onAppear(perform: initializePlayers)
                             .onDisappear(perform: releasePlayers)
@@ -200,16 +208,15 @@ struct CompressionResultView: View {
                                 }
                             }
                         }) {
-                            VStack(spacing: 4) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "square.and.arrow.down.fill")
-                                    .font(.title3)
-                                Text("保存")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
+                                Text("保存副本")
                             }
+                            .font(.subheadline)
+                            .fontWeight(.bold)
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 16)
                             .background(Color.white.opacity(0.06))
                             .cornerRadius(16)
                             .overlay(
@@ -235,16 +242,15 @@ struct CompressionResultView: View {
                                 }
                             }
                         }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "arrow.triangle.2.circlepath.doc.on.doc.fill")
-                                    .font(.title3)
-                                Text("替换")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.on.doc")
+                                Text("直接替换")
                             }
+                            .font(.subheadline)
+                            .fontWeight(.bold)
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 16)
                             .background(
                                 LinearGradient(
                                     colors: [.purple, .indigo],
@@ -264,7 +270,7 @@ struct CompressionResultView: View {
                             viewModel.cleanup()
                         }
                     }) {
-                        Text("返回")
+                        Text("放弃并返回")
                             .font(.subheadline)
                             .foregroundColor(.gray)
                     }
@@ -386,6 +392,43 @@ struct CompressionResultView: View {
             return String(format: "%.1f KB", doubleBytes / 1024)
         } else {
             return "\(bytes) B"
+        }
+    }
+}
+
+// MARK: - 紧凑对比行子组件
+
+struct CompactComparisonRow: View {
+    let label: String
+    let leftValue: String
+    let rightValue: String
+    
+    var body: some View {
+        HStack {
+            Text(leftValue)
+                .font(.caption)
+                .foregroundColor(.gray)
+            
+            Spacer()
+            
+            HStack(spacing: 4) {
+                // Image(systemName: "arrow.right")
+                //     .font(.system(size: 8))
+                //     .foregroundColor(.purple.opacity(0.6))
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.purple.opacity(0.8))
+                // Image(systemName: "arrow.right")
+                //     .font(.system(size: 8))
+                //     .foregroundColor(.purple.opacity(0.6))
+            }
+            
+            Spacer()
+            
+            Text(rightValue)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
         }
     }
 }
