@@ -356,7 +356,7 @@ struct DashboardView: View {
                                 .font(.system(size: 22, weight: .black, design: .rounded))
                                 .foregroundColor(.white)
                             
-                            Text("Version 1.0.0")
+                            Text("Version 1.0.1 (iOS 26.5)")
                                 .font(.caption2)
                                 .foregroundColor(.gray)
                         }
