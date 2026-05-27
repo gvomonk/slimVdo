@@ -16,6 +16,7 @@ struct DashboardView: View {
     
     @State private var showVideoPicker = false
     @State private var showPhotoPicker = false
+    @State private var showScreenshotPicker = false
     @State private var animateBar = false
     @State private var showInfoPopover = false
     @AppStorage("isDarkMode") private var isDarkMode = true
@@ -281,14 +282,33 @@ struct DashboardView: View {
                                 )
                             }
                             .sheet(isPresented: $showPhotoPicker) {
-                                CustomMediaPicker(mediaType: .image, maxSelection: 50) { assets in
+                                CustomMediaPicker(mediaType: .image, maxSelection: 9999) { assets in
                                     Task {
                                         await photoViewModel.selectPhotosFromAssets(assets)
                                     }
                                 }
                             }
                             
-                            // 卡片三：占位卡片 (磨砂 Coming Soon)
+                            // 卡片三：截图一键压缩
+                            Button(action: {
+                                showScreenshotPicker = true
+                            }) {
+                                FeatureCard(
+                                    title: "截图一键压缩",
+                                    icon: "macwindow.on.rectangle",
+                                    gradient: LinearGradient(colors: [.teal, .emeraldGreen], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    isDarkMode: isDarkMode
+                                )
+                            }
+                            .sheet(isPresented: $showScreenshotPicker) {
+                                CustomMediaPicker(mediaType: .image, maxSelection: 9999, isScreenshotMode: true) { assets in
+                                    Task {
+                                        await photoViewModel.selectPhotosFromAssets(assets)
+                                    }
+                                }
+                            }
+                            
+                            // 卡片四：占位卡片 (磨砂 Coming Soon)
                             FeatureCard(
                                 title: "Coming Soon",
                                 icon: "wand.and.stars",
@@ -424,9 +444,12 @@ struct DashboardView: View {
                     .padding(.vertical, 20)
                     .frame(width: 320)
                     .background(
+                        .ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: 24)
+                    )
+                    .background(
                         RoundedRectangle(cornerRadius: 24)
                             .fill(Color(red: 0.1, green: 0.1, blue: 0.15).opacity(0.65))
-                            .background(.ultraThinMaterial)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 24)
@@ -541,7 +564,7 @@ struct FeatureCard: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 12) {
             // High-quality glowing circular icon container
             ZStack {
                 if isPlaceholder {
@@ -565,7 +588,7 @@ struct FeatureCard: View {
                 .foregroundColor(textColor)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
+        .padding(.vertical, 16)
         .background(isDarkMode ? Color.white.opacity(0.02) : Color.black.opacity(0.01))
         .cornerRadius(24)
         .overlay(

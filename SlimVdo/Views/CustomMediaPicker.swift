@@ -12,6 +12,7 @@ import Photos
 struct CustomMediaPicker: View {
     let mediaType: PHAssetMediaType
     let maxSelection: Int
+    var isScreenshotMode: Bool = false
     let onSelect: ([PHAsset]) -> Void
     
     @Environment(\.dismiss) private var dismiss
@@ -22,6 +23,10 @@ struct CustomMediaPicker: View {
     @State private var selectedAssets: [PHAsset] = []
     @State private var sizeCache: [String: Int64] = [:]
     @State private var isLoading = true
+    
+    // 截图一键压缩专属状态
+    @State private var thresholdSize: Double = 300.0 * 1024.0
+    @State private var maxScreenshotSize: Double = 1.0
     
     // 筛选与排序选项
     enum SortOption: String, CaseIterable, Identifiable {
@@ -79,72 +84,118 @@ struct CustomMediaPicker: View {
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // 1. 顶部控制栏 (排序与筛选按钮，极致简约苹果相册风格)
-                    HStack(spacing: 16) {
-                        // 1. 排序 Menu 下拉按钮
-                        Menu {
-                            Picker("排序", selection: $selectedSort) {
-                                ForEach(SortOption.allCases) { option in
-                                    Text(option.rawValue).tag(option)
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("排序: \(selectedSort.rawValue)")
+                    // 1. 顶部控制栏 (排序与筛选按钮，或者截图模式下的滑动过滤栏)
+                    if isScreenshotMode {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("阈值")
                                     .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                Image(systemName: "chevron.down")
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(isDarkMode ? .white.opacity(0.8) : .black.opacity(0.8))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(isDarkMode ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
-                            .cornerRadius(12)
-                        }
-                        
-                        Spacer()
-                        
-                        // 2. 筛选 Menu 下拉按钮
-                        Menu {
-                            Button(action: {
-                                sizeFilterEnabled = false
-                            }) {
-                                HStack {
-                                    Text("全部显示")
-                                    if !sizeFilterEnabled {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
+                                    .fontWeight(.bold)
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.8) : .black.opacity(0.8))
+                                Spacer()
+                                Text("≥ \(formatBytes(Int64(thresholdSize)))")
+                                    .font(.system(.subheadline, design: .rounded))
+                                    .fontWeight(.black)
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color.blue.opacity(0.12))
+                                    .cornerRadius(8)
                             }
                             
-                            Button(action: {
-                                sizeFilterEnabled = true
-                            }) {
-                                HStack {
-                                    Text(mediaType == .image ? "仅显示大文件 (>5MB)" : "仅显示大文件 (>200MB)")
-                                    if sizeFilterEnabled {
-                                        Image(systemName: "checkmark")
+                            Slider(value: $thresholdSize, in: 0...max(1.0, maxScreenshotSize))
+                                .tint(.blue)
+                                .onChange(of: thresholdSize) { _ in
+                                    updateScreenshotSelection()
+                                }
+                            
+                            HStack {
+                                Text("0 B")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Text(formatBytes(Int64(maxScreenshotSize)))
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .background(isDarkMode ? Color.white.opacity(0.02) : Color.black.opacity(0.01))
+                        .overlay(
+                            VStack {
+                                Spacer()
+                                Divider()
+                                    .background(Color.white.opacity(0.08))
+                            }
+                        )
+                    } else {
+                        HStack(spacing: 16) {
+                            // 1. 排序 Menu 下拉按钮
+                            Menu {
+                                Picker("排序", selection: $selectedSort) {
+                                    ForEach(SortOption.allCases) { option in
+                                        Text(option.rawValue).tag(option)
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("排序: \(selectedSort.rawValue)")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(isDarkMode ? .white.opacity(0.8) : .black.opacity(0.8))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(isDarkMode ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
+                                .cornerRadius(12)
                             }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(sizeFilterEnabled ? "筛选: 大文件" : "筛选: 全部")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                Image(systemName: "line.3.horizontal.decrease.circle" + (sizeFilterEnabled ? ".fill" : ""))
-                                    .font(.subheadline)
+                            
+                            Spacer()
+                            
+                            // 2. 筛选 Menu 下拉按钮
+                            Menu {
+                                Button(action: {
+                                    sizeFilterEnabled = false
+                                }) {
+                                    HStack {
+                                        Text("全部显示")
+                                        if !sizeFilterEnabled {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                                
+                                Button(action: {
+                                    sizeFilterEnabled = true
+                                }) {
+                                    HStack {
+                                        Text(mediaType == .image ? "仅显示大文件 (>5MB)" : "仅显示大文件 (>200MB)")
+                                        if sizeFilterEnabled {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(sizeFilterEnabled ? "筛选: 大文件" : "筛选: 全部")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    Image(systemName: "line.3.horizontal.decrease.circle" + (sizeFilterEnabled ? ".fill" : ""))
+                                        .font(.subheadline)
+                                }
+                                .foregroundColor(sizeFilterEnabled ? (mediaType == .image ? .blue : .purple) : (isDarkMode ? .white.opacity(0.8) : .black.opacity(0.8)))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(sizeFilterEnabled ? (mediaType == .image ? Color.blue.opacity(0.12) : Color.purple.opacity(0.12)) : (isDarkMode ? Color.white.opacity(0.06) : Color.black.opacity(0.05)))
+                                .cornerRadius(12)
                             }
-                            .foregroundColor(sizeFilterEnabled ? (mediaType == .image ? .blue : .purple) : (isDarkMode ? .white.opacity(0.8) : .black.opacity(0.8)))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(sizeFilterEnabled ? (mediaType == .image ? Color.blue.opacity(0.12) : Color.purple.opacity(0.12)) : (isDarkMode ? Color.white.opacity(0.06) : Color.black.opacity(0.05)))
-                            .cornerRadius(12)
                         }
+                        .padding(.horizontal)
+                        .padding(.vertical, 10)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 10)
                     
                     if isLoading {
                         VStack(spacing: 12) {
@@ -197,7 +248,7 @@ struct CustomMediaPicker: View {
                     }
                 }
             }
-            .navigationTitle(mediaType == .image ? "选择照片" : "选择视频")
+            .navigationTitle(isScreenshotMode ? "选择截屏" : (mediaType == .image ? "选择照片" : "选择视频"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -237,6 +288,9 @@ struct CustomMediaPicker: View {
         // 1. 获取资源列表
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        if isScreenshotMode {
+            options.predicate = NSPredicate(format: "mediaSubtype == %d", PHAssetMediaSubtype.photoScreenshot.rawValue)
+        }
         
         let fetchResult = PHAsset.fetchAssets(with: self.mediaType, options: options)
         var list: [PHAsset] = []
@@ -266,8 +320,16 @@ struct CustomMediaPicker: View {
             return dict
         }
         
+        let maxVal = sizes.values.max() ?? 0
+        
         await MainActor.run {
             self.sizeCache = sizes
+            self.maxScreenshotSize = Double(maxVal)
+            if isScreenshotMode {
+                // 默认滑点在 0.3MB (300 * 1024 字节)，如果超出了 maxScreenshotSize，则退化至 maxScreenshotSize
+                self.thresholdSize = min(300.0 * 1024.0, Double(maxVal))
+                updateScreenshotSelection()
+            }
             self.isLoading = false
         }
     }
@@ -292,6 +354,29 @@ struct CustomMediaPicker: View {
             return size
         }
         return 0
+    }
+    
+    private func updateScreenshotSelection() {
+        let filtered = assets.filter { asset in
+            let size = sizeCache[asset.localIdentifier] ?? 0
+            return Double(size) >= thresholdSize
+        }
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            self.selectedAssets = Array(filtered.prefix(maxSelection))
+        }
+    }
+    
+    private func formatBytes(_ bytes: Int64) -> String {
+        let doubleBytes = Double(bytes)
+        if doubleBytes >= 1024 * 1024 * 1024 {
+            return String(format: "%.1f GB", doubleBytes / (1024 * 1024 * 1024))
+        } else if doubleBytes >= 1024 * 1024 {
+            return String(format: "%.1f MB", doubleBytes / (1024 * 1024))
+        } else if doubleBytes >= 1024 {
+            return String(format: "%.1f KB", doubleBytes / 1024)
+        } else {
+            return "\(bytes) B"
+        }
     }
 }
 

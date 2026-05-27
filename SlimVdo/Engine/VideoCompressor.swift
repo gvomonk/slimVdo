@@ -40,13 +40,13 @@ public final class VideoCompressor {
                 let rest = String(inputFilename[startIndex...])
                 let urlAsset = URL(fileURLWithPath: rest)
                 let baseName = urlAsset.deletingPathExtension().lastPathComponent
-                outputName = "\(baseName)_1.\(settings.outputFormat.pathExtension)"
+                outputName = "\(baseName)_slimvdo.\(settings.outputFormat.pathExtension)"
             }
         }
         
         if outputName.isEmpty {
             let baseName = inputURL.deletingPathExtension().lastPathComponent
-            outputName = "\(baseName)_1.\(settings.outputFormat.pathExtension)"
+            outputName = "\(baseName)_slimvdo.\(settings.outputFormat.pathExtension)"
         }
         
         let outputURL = tempDir.appendingPathComponent(outputName)
@@ -104,9 +104,10 @@ public final class VideoCompressor {
         do {
             let contents = try fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
             for fileURL in contents {
-                if fileURL.lastPathComponent.hasPrefix("slimvdo_") {
+                let name = fileURL.lastPathComponent
+                if name.hasPrefix("slimvdo_") || name.contains("_slimvdo") {
                     try fm.removeItem(at: fileURL)
-                    print("🧹 清除遗留临时文件: \(fileURL.lastPathComponent)")
+                    print("🧹 清除遗留临时文件: \(name)")
                 }
             }
         } catch {

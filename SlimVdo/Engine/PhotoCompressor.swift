@@ -37,13 +37,13 @@ public final class PhotoCompressor {
                 let rest = String(inputFilename[startIndex...])
                 let urlAsset = URL(fileURLWithPath: rest)
                 let baseName = urlAsset.deletingPathExtension().lastPathComponent
-                outputName = "slimvdo_photo_output_\(baseName)_1.\(settings.format.pathExtension)"
+                outputName = "\(baseName)_slimvdo.\(settings.format.pathExtension)"
             }
         }
         
         if outputName.isEmpty {
             let baseName = inputURL.deletingPathExtension().lastPathComponent
-            outputName = "slimvdo_photo_output_\(baseName)_1.\(settings.format.pathExtension)"
+            outputName = "\(baseName)_slimvdo.\(settings.format.pathExtension)"
         }
         
         let outputURL = tempDir.appendingPathComponent(outputName)
